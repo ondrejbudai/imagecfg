@@ -108,6 +108,7 @@ func generateUsersBlockCmd(bp *blueprint.Blueprint) (string, error) {
 		if user.GID != nil {
 			useraddCmdParts = append(useraddCmdParts, "-g", fmt.Sprintf("%d", *user.GID))
 		}
+		useraddCmdParts = append(useraddCmdParts, user.Name)
 		useraddFullCmd := strings.Join(useraddCmdParts, " ")
 		singleUserCmds = append(singleUserCmds, fmt.Sprintf("(getent passwd %s > /dev/null || %s)", user.Name, useraddFullCmd))
 
