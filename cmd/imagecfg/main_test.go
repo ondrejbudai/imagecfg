@@ -39,7 +39,7 @@ func TestBashCommand(t *testing.T) {
 		"#!/bin/bash",
 		"echo 'my-server' > /etc/hostname",
 		"ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime",
-		"localectl set-locale LANG=en_US.UTF-8",
+		"echo 'LANG=en_US.UTF-8' > /etc/locale.conf",
 		"useradd",
 		"firewall-offline-cmd",
 		"systemctl enable nginx",

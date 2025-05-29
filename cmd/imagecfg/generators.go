@@ -47,11 +47,11 @@ func generateLocaleCmd(bp *blueprint.Blueprint) (string, error) {
 	var cmds []string
 
 	if locale != nil && *locale != "" {
-		cmds = append(cmds, fmt.Sprintf("localectl set-locale LANG=%s", *locale))
+		cmds = append(cmds, fmt.Sprintf("echo 'LANG=%s' > /etc/locale.conf", *locale))
 	}
 
 	if keyboardLayout != nil && *keyboardLayout != "" {
-		cmds = append(cmds, fmt.Sprintf("localectl set-keymap %s", *keyboardLayout))
+		cmds = append(cmds, fmt.Sprintf("echo 'KEYMAP=%s' > /etc/vconsole.conf", *keyboardLayout))
 	}
 
 	if len(cmds) == 0 {
