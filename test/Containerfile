@@ -1,0 +1,4 @@
+FROM quay.io/fedora/fedora-bootc:42
+
+COPY config.toml /usr/lib/bootc-image-builder/config.toml
+RUN imagecfg apply

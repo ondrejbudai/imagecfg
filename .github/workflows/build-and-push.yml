@@ -1,0 +1,64 @@
+name: Build and Push Container
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  FEDORA_VERSION: 42
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.2'
+          check-latest: true
+
+      - name: Build binary
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o imagecfg ./cmd/imagecfg
+
+      - name: Install Podman
+        run: |
+          sudo apt update
+          sudo apt install -y podman
+
+      - name: Build container
+        run: |
+          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          podman build \
+            --build-arg FEDORA_VERSION=${{ env.FEDORA_VERSION }} \
+            --build-arg GITHUB_REPOSITORY=${{ github.repository }} \
+            -t "${IMAGE_TAG}:latest" \
+            -t "${IMAGE_TAG}:${{ github.sha }}" \
+            -f fedora-bootc-42-Containerfile .
+
+      - name: Run smoke test
+        run: |
+          cd test
+          podman build \
+            --build-arg FEDORA_VERSION=${{ env.FEDORA_VERSION }} \
+            -t "test-image:latest" .
+
+      - name: Push container
+        if: github.event_name != 'pull_request'
+        run: |
+          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          podman login -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} ${{ env.REGISTRY }}
+          podman push "${IMAGE_TAG}:latest"
+          podman push "${IMAGE_TAG}:${{ github.sha }}"

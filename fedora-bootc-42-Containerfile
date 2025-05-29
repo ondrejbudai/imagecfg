@@ -1,0 +1,5 @@
+ARG FEDORA_VERSION=42
+FROM quay.io/fedora/fedora-bootc:${FEDORA_VERSION}
+
+COPY imagecfg /usr/local/bin/
+RUN chmod +x /usr/local/bin/imagecfg

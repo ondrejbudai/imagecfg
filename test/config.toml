@@ -1,0 +1,27 @@
+[customizations]
+hostname = "my-server"
+
+[customizations.timezone]
+timezone = "America/New_York"
+ntpservers = ["pool.ntp.org"]
+
+[customizations.locale]
+languages = ["en_US.UTF-8"]
+keyboard = "us"
+
+[[customizations.user]]
+name = "admin"
+password = "$6$xyz..."  # Hashed password
+groups = ["wheel"]
+key = "ssh-rsa AAAA..."
+
+[customizations.firewall]
+ports = ["80/tcp", "443/tcp"]
+services = { enabled = ["http", "https"] }
+
+[customizations.services]
+enabled = ["nginx"]
+disabled = ["telnet"]
+
+[[packages]]
+name = "nginx"
