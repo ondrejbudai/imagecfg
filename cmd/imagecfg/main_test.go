@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"io"
 	"os"
-	"strings"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBashCommand(t *testing.T) {
@@ -45,9 +48,7 @@ func TestBashCommand(t *testing.T) {
 	}
 
 	for _, part := range expectedParts {
-		if !strings.Contains(output, part) {
-			t.Errorf("Expected script to contain %q, but it didn't", part)
-		}
+		assert.Contains(t, output, part, "Script should contain %q", part)
 	}
 
 	// Also test that the script contains specific firewall rules from our test config
@@ -59,8 +60,48 @@ func TestBashCommand(t *testing.T) {
 	}
 
 	for _, rule := range firewallRules {
-		if !strings.Contains(output, rule) {
-			t.Errorf("Expected script to contain firewall rule %q, but it didn't", rule)
-		}
+		assert.Contains(t, output, rule, "Script should contain firewall rule %q", rule)
 	}
+}
+
+func TestApplyCommand(t *testing.T) {
+	// Create a temporary directory for test artifacts
+	tmpDir, err := os.MkdirTemp("", "imagecfg-test-*")
+	require.NoError(t, err, "Failed to create temporary directory")
+	defer os.RemoveAll(tmpDir)
+
+	// Build imagecfg in the temporary directory, cross-compiled for Linux
+	binaryPath := filepath.Join(tmpDir, "imagecfg")
+	buildCmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/imagecfg")
+	buildCmd.Dir = "../.."
+
+	// poor man's cross-compilation
+	// TODO: use a red hat golang image
+	buildCmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=arm64", "CGO_ENABLED=0")
+	out, err := buildCmd.CombinedOutput()
+	require.NoError(t, err, "Failed to build imagecfg: %s", out)
+
+	// Copy config.toml to temp dir
+	copyCmd := exec.Command("cp", "../../test/config.toml", filepath.Join(tmpDir, "config.toml"))
+	out, err = copyCmd.CombinedOutput()
+	require.NoError(t, err, "Failed to copy config.toml: %s", out)
+
+	// Create a Containerfile
+	containerfile := `FROM fedora-bootc:42
+COPY imagecfg /usr/local/bin/
+COPY config.toml /usr/lib/bootc-image-builder/config.toml`
+
+	containerfilePath := filepath.Join(tmpDir, "Containerfile")
+	err = os.WriteFile(containerfilePath, []byte(containerfile), 0644)
+	require.NoError(t, err, "Failed to write Containerfile")
+
+	// Build the container image
+	buildContainerCmd := exec.Command("podman", "build", "-t", "imagecfg-test", tmpDir)
+	out, err = buildContainerCmd.CombinedOutput()
+	require.NoError(t, err, "Failed to build container: %s", out)
+
+	// Run the container with apply command
+	runCmd := exec.Command("podman", "run", "--rm", "imagecfg-test", "imagecfg", "apply")
+	out, err = runCmd.CombinedOutput()
+	require.NoError(t, err, "Failed to run apply command: %s", out)
 }
