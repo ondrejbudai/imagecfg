@@ -256,6 +256,9 @@ func generateBashScript(bp *blueprint.Blueprint) (string, []NamedCommandBlock, e
 		}
 	}
 
+	// Add dnf clean all as the very last operation
+	namedCommandBlocks = append(namedCommandBlocks, NamedCommandBlock{Name: "Cleanup DNF Cache", Commands: "dnf clean all"})
+
 	// Script generation no longer assembles the final script here.
 	// It returns the header and the blocks separately.
 	return scriptHeader.String(), namedCommandBlocks, nil

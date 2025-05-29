@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -45,6 +46,7 @@ func TestBashCommand(t *testing.T) {
 		"systemctl enable nginx",
 		"systemctl disable telnet",
 		"dnf install -y nginx",
+		"dnf clean all",
 	}
 
 	for _, part := range expectedParts {
@@ -62,6 +64,10 @@ func TestBashCommand(t *testing.T) {
 	for _, rule := range firewallRules {
 		assert.Contains(t, output, rule, "Script should contain firewall rule %q", rule)
 	}
+
+	// Check that "dnf clean all" is the last command
+	trimmedOutput := strings.TrimSpace(output)
+	assert.True(t, strings.HasSuffix(trimmedOutput, "dnf clean all"), "Script should end with 'dnf clean all'")
 }
 
 func TestApplyCommand(t *testing.T) {
