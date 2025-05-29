@@ -1,6 +1,6 @@
 module github.com/ondrejbudai/imagecfg
 
-go 1.24.2
+go 1.23
 
 require (
 	github.com/BurntSushi/toml v1.5.1-0.20250403130103-3d3abc24416a

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -76,16 +77,24 @@ func TestApplyCommand(t *testing.T) {
 	require.NoError(t, err, "Failed to create temporary directory")
 	defer os.RemoveAll(tmpDir)
 
-	// Build imagecfg in the temporary directory, cross-compiled for Linux
-	binaryPath := filepath.Join(tmpDir, "imagecfg")
-	buildCmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/imagecfg")
-	buildCmd.Dir = "../.."
+	// Determine absolute project root for volume mounting
+	_, currentFilePath, _, ok := runtime.Caller(0)
+	require.True(t, ok, "Failed to get current file path via runtime.Caller")
+	projectRoot := filepath.Join(filepath.Dir(currentFilePath), "..", "..")
+	projectRootAbs, err := filepath.Abs(projectRoot)
+	require.NoError(t, err, "Failed to get absolute path for project root")
 
-	// poor man's cross-compilation
-	// TODO: use a red hat golang image
-	buildCmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=arm64", "CGO_ENABLED=0")
+	// Build imagecfg using ubi10/go-toolset container
+	buildCmd := exec.Command("podman", "run", "--rm",
+		"-v", tmpDir+":/build_output:z", // Mount tmpDir to /build_output in the container
+		"-v", projectRootAbs+":/src", // Mount absolute project root to /src in the container
+		"-w", "/src/cmd/imagecfg", // Set working directory in the container
+		"-e", "CGO_ENABLED=0", // Pass CGO_ENABLED=0 into the container
+		"registry.access.redhat.com/ubi10/go-toolset",
+		"go", "build", "-o", "/build_output/imagecfg")
+
 	out, err := buildCmd.CombinedOutput()
-	require.NoError(t, err, "Failed to build imagecfg: %s", out)
+	require.NoError(t, err, "Failed to build imagecfg using podman: %s", out)
 
 	// Copy config.toml to temp dir
 	copyCmd := exec.Command("cp", "../../test/config.toml", filepath.Join(tmpDir, "config.toml"))
