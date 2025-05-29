@@ -41,31 +41,24 @@ func parseBlueprint(path string) (*blueprint.Blueprint, error) {
 	return &bp, nil
 }
 
+// Helper function to load blueprint
+func loadBlueprint(args []string) (*blueprint.Blueprint, error) {
+	blueprintPath := defaultBlueprintPath
+	if len(args) > 0 {
+		blueprintPath = args[0]
+	}
+	bp, err := parseBlueprint(blueprintPath)
+	if err != nil {
+		return nil, err // Already includes path info
+	}
+	return bp, nil
+}
+
 // --- Cobra Setup ---
 var rootCmd = &cobra.Command{
 	Use:   "imagecfg",
 	Short: "imagecfg is a tool for working with OSBuild blueprints",
 	Long:  `A command-line utility to process OSBuild blueprints, for example, to translate them into other formats like bash scripts.`,
-}
-
-// Common function to handle blueprint loading and script generation
-func handleBlueprintAndScript(args []string) (string, error) {
-	blueprintPath := defaultBlueprintPath
-	if len(args) > 0 {
-		blueprintPath = args[0]
-	}
-
-	bp, err := parseBlueprint(blueprintPath)
-	if err != nil {
-		return "", err
-	}
-
-	script, err := generateBashScript(bp)
-	if err != nil {
-		return "", fmt.Errorf("error generating bash script: %w", err)
-	}
-
-	return script, nil
 }
 
 var bashCmd = &cobra.Command{
@@ -90,13 +83,32 @@ The generated script should be reviewed carefully before execution.
 Each customization type is translated into a block of bash commands.
 If multiple commands are needed for a single logical step, they are chained with '&&'.`,
 	Args: cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		script, err := handleBlueprintAndScript(args)
+	RunE: func(cmd *cobra.Command, args []string) error {
+		bp, err := loadBlueprint(args)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
+			return err // Cobra will print this and exit
 		}
-		fmt.Println(script)
+
+		header, namedBlocks, err := generateBashScript(bp)
+		if err != nil {
+			return fmt.Errorf("error generating bash script: %w", err)
+		}
+
+		var fullScript strings.Builder
+		fullScript.WriteString(header)
+		if len(namedBlocks) > 0 {
+			fullScript.WriteString("\n") // Add a newline before the first command block
+			var commandStrings []string
+			for _, nb := range namedBlocks {
+				if nb.Commands != "" {
+					commandStrings = append(commandStrings, nb.Commands)
+				}
+			}
+			fullScript.WriteString(strings.Join(commandStrings, "\n\n"))
+			fullScript.WriteString("\n") // Add a newline after the last command block
+		}
+		fmt.Println(fullScript.String())
+		return nil
 	},
 }
 
@@ -111,52 +123,82 @@ If no blueprint path is provided, the default path (/usr/lib/bootc-image-builder
 This command requires root privileges as it modifies system configuration.
 The same configurations are supported as in the 'bash' command.`,
 	Args: cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		script, err := handleBlueprintAndScript(args)
+	RunE: func(cmd *cobra.Command, args []string) error {
+		bp, err := loadBlueprint(args)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
+			return err // Cobra will print this and exit
 		}
 
-		// Create a temporary script file
-		tmpfile, err := os.CreateTemp("", "imagecfg-*.sh")
+		header, namedBlocks, err := generateBashScript(bp)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating temporary script: %v\n", err)
-			os.Exit(1)
-		}
-		defer os.Remove(tmpfile.Name())
-
-		// Write the script to the temporary file
-		if _, err := tmpfile.WriteString(script); err != nil {
-			fmt.Fprintf(os.Stderr, "Error writing script: %v\n", err)
-			os.Exit(1)
-		}
-		if err := tmpfile.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error closing temporary file: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("error generating command blocks: %w", err)
 		}
 
-		// Make the script executable
-		if err := os.Chmod(tmpfile.Name(), 0755); err != nil {
-			fmt.Fprintf(os.Stderr, "Error making script executable: %v\n", err)
-			os.Exit(1)
+		if len(namedBlocks) == 0 {
+			fmt.Println("No configurations to apply.")
+			return nil
 		}
 
-		// Execute the script
-		execCmd := exec.Command(tmpfile.Name())
-		execCmd.Stdout = os.Stdout
-		execCmd.Stderr = os.Stderr
-		if err := execCmd.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error executing script: %v\n", err)
-			os.Exit(1)
+		for _, block := range namedBlocks {
+			if strings.TrimSpace(block.Commands) == "" {
+				continue // Skip empty command blocks
+			}
+
+			fmt.Printf("Applying: %s...\n", block.Name)
+
+			// Create a temporary script file for this block
+			tmpfile, err := os.CreateTemp("", "imagecfg-block-*.sh")
+			if err != nil {
+				return fmt.Errorf("error creating temporary script for '%s': %w", block.Name, err)
+			}
+			// Defer removal of the temp file. This runs when the RunE function returns.
+			// Using a func literal to capture the current tmpfile.Name().
+			defer func(name string) {
+				if err := os.Remove(name); err != nil && !os.IsNotExist(err) {
+					// Log error during deferred removal, but don't override original error
+					fmt.Fprintf(os.Stderr, "Warning: failed to remove temporary script %s during deferred cleanup: %v\n", name, err)
+				}
+			}(tmpfile.Name())
+
+			// Write the header and current command block to the temporary file
+			blockScript := header + "\n" + block.Commands
+			if _, err := tmpfile.WriteString(blockScript); err != nil {
+				_ = tmpfile.Close() // Attempt to close, ignore error as we are in an error path.
+				return fmt.Errorf("error writing script for '%s' to %s: %w", block.Name, tmpfile.Name(), err)
+			}
+			if err := tmpfile.Close(); err != nil {
+				return fmt.Errorf("error closing temporary file for '%s' (%s): %w", block.Name, tmpfile.Name(), err)
+			}
+
+			// Make the script executable
+			if err := os.Chmod(tmpfile.Name(), 0755); err != nil {
+				return fmt.Errorf("error making script for '%s' (%s) executable: %w", block.Name, tmpfile.Name(), err)
+			}
+
+			// Execute the script
+			execCmd := exec.Command(tmpfile.Name())
+			execCmd.Stdout = os.Stdout
+			execCmd.Stderr = os.Stderr // Capture stderr for error reporting
+			if err := execCmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "\n--- ERROR: Failed to apply '%s' ---\n", block.Name)
+				fmt.Fprintf(os.Stderr, "Error details: %v\n", err)
+				fmt.Fprintf(os.Stderr, "Attempted commands for '%s':\n%s\n", block.Name, block.Commands)
+				fmt.Fprintf(os.Stderr, "--- END ERROR ---\n")
+				return fmt.Errorf("execution failed for block '%s'", block.Name) // Error returned, defer will clean up tmpfile
+			}
+			fmt.Printf("Successfully applied: %s\n", block.Name)
+			// Temp file for this successful block will be cleaned up by the deferred call when RunE exits.
 		}
+		fmt.Println("\nAll configurations applied successfully.")
+		return nil
 	},
 }
 
 // Execute executes the root command.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		// Cobra automatically prints the error to os.Stderr if RunE returns an error.
+		// We just need to ensure the process exits with an error code.
 		os.Exit(1)
 	}
 }
@@ -171,10 +213,16 @@ func main() {
 	Execute()
 }
 
+// NamedCommandBlock holds a named block of commands
+type NamedCommandBlock struct {
+	Name     string
+	Commands string
+}
+
 // --- Bash Script Generation Orchestrator ---
-func generateBashScript(bp *blueprint.Blueprint) (string, error) {
+func generateBashScript(bp *blueprint.Blueprint) (string, []NamedCommandBlock, error) {
 	var scriptHeader strings.Builder
-	var commandBlocks []string // Each item will be a block of commands for a major customization type
+	var namedCommandBlocks []NamedCommandBlock
 
 	// --- Script Header ---
 	scriptHeader.WriteString("#!/bin/bash\n")
@@ -201,22 +249,14 @@ func generateBashScript(bp *blueprint.Blueprint) (string, error) {
 	for _, blk := range blockGenerators {
 		cmdStr, err := blk.generator(bp)
 		if err != nil {
-			return "", fmt.Errorf("could not generate commands for %s: %w", blk.name, err)
+			return "", nil, fmt.Errorf("could not generate commands for %s: %w", blk.name, err)
 		}
 		if cmdStr != "" {
-			commandBlocks = append(commandBlocks, cmdStr)
+			namedCommandBlocks = append(namedCommandBlocks, NamedCommandBlock{Name: blk.name, Commands: cmdStr})
 		}
 	}
 
-	// --- Final Script Assembly ---
-	var finalScript strings.Builder
-	finalScript.WriteString(scriptHeader.String())
-	if len(commandBlocks) > 0 {
-		finalScript.WriteString("\n") // Add a newline before the first command block
-		// Join blocks, each separated by two newlines for readability
-		finalScript.WriteString(strings.Join(commandBlocks, "\n\n"))
-		finalScript.WriteString("\n") // Add a newline after the last command block
-	}
-
-	return finalScript.String(), nil
+	// Script generation no longer assembles the final script here.
+	// It returns the header and the blocks separately.
+	return scriptHeader.String(), namedCommandBlocks, nil
 }
