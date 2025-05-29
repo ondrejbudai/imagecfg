@@ -236,6 +236,7 @@ func generateBashScript(bp *blueprint.Blueprint) (string, []NamedCommandBlock, e
 	}
 
 	blockGenerators := []blockGen{
+		{"Packages", generatePackagesCmd},
 		{"Hostname", generateHostnameCmd},
 		{"Timezone", generateTimezoneCmd},
 		{"Locale", generateLocaleCmd},
@@ -243,7 +244,6 @@ func generateBashScript(bp *blueprint.Blueprint) (string, []NamedCommandBlock, e
 		{"Users", generateUsersBlockCmd},
 		{"Firewall", generateFirewallCmd},
 		{"Services", generateServicesCmd},
-		{"Packages", generatePackagesCmd},
 	}
 
 	for _, blk := range blockGenerators {
