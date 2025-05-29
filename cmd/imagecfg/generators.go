@@ -149,6 +149,14 @@ func generateFirewallCmd(bp *blueprint.Blueprint) (string, error) {
 	}
 	var fwRuleCmds []string // Holds individual firewall-cmd calls
 
+	// Check if there are any rules to apply
+	hasRules := len(fwCustom.Ports) > 0 || (fwCustom.Services != nil && len(fwCustom.Services.Enabled) > 0)
+
+	if hasRules {
+		// Ensure firewalld is installed if there are rules and firewall-offline-cmd is not available
+		fwRuleCmds = append(fwRuleCmds, "(command -v firewall-offline-cmd >/dev/null || dnf install -y firewalld)")
+	}
+
 	if len(fwCustom.Ports) > 0 {
 		for _, port := range fwCustom.Ports {
 			fwRuleCmds = append(fwRuleCmds, fmt.Sprintf("firewall-offline-cmd --add-port=%s", port))
