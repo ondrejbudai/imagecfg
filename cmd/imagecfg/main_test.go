@@ -38,7 +38,7 @@ func TestBashCommand(t *testing.T) {
 	expectedParts := []string{
 		"#!/bin/bash",
 		"echo 'my-server' > /etc/hostname",
-		"timedatectl set-timezone America/New_York",
+		"ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime",
 		"localectl set-locale LANG=en_US.UTF-8",
 		"useradd",
 		"firewall-offline-cmd",

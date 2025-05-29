@@ -24,7 +24,9 @@ func generateTimezoneCmd(bp *blueprint.Blueprint) (string, error) {
 	var cmds []string
 
 	if timezone != nil && *timezone != "" {
-		cmds = append(cmds, fmt.Sprintf("timedatectl set-timezone %s", *timezone))
+		// Format for symlink: e.g., /usr/share/zoneinfo/America/New_York
+		// We need to ensure the zoneinfo file exists, but that's better handled by the image build itself.
+		cmds = append(cmds, fmt.Sprintf("ln -sf /usr/share/zoneinfo/%s /etc/localtime", *timezone))
 	}
 
 	if len(ntpservers) > 0 {
