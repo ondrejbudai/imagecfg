@@ -37,7 +37,7 @@ func TestBashCommand(t *testing.T) {
 	// Test for expected content in the generated script
 	expectedParts := []string{
 		"#!/bin/bash",
-		"hostnamectl set-hostname my-server",
+		"echo 'my-server' > /etc/hostname",
 		"timedatectl set-timezone America/New_York",
 		"localectl set-locale LANG=en_US.UTF-8",
 		"useradd",

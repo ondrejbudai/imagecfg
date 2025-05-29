@@ -13,7 +13,7 @@ func generateHostnameCmd(bp *blueprint.Blueprint) (string, error) {
 	if hostname == nil || *hostname == "" {
 		return "", nil // No hostname specified
 	}
-	cmd := fmt.Sprintf("hostnamectl set-hostname %s", *hostname)
+	cmd := fmt.Sprintf("echo '%s' > /etc/hostname", *hostname)
 	return cmd, nil
 }
 
